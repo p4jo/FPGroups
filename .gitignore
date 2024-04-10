@@ -1,3 +1,8 @@
 /.venv
 /__pycache__
 /dotnet-install.sh
+**/.idea
+**/.vscode
+**/bin
+**/obj
+GAP-WASI

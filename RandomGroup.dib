@@ -1,4 +1,11 @@
+#!meta
 
+{"kernelInfo":{"defaultKernelName":"csharp","items":[{"aliases":[],"languageName":"csharp","name":"csharp"}]}}
+
+#!csharp
+
+// #r "nuget:QuikGraph"
+// #r "nuget:SharpGraphLib"
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -7,37 +14,32 @@ using Random = System.Random;
 using QuikGraph;
 using TaggedGraph = QuikGraph.UndirectedGraph<string, QuikGraph.TaggedEdge<string, EdgeData>>;
 using SharpGraph;
-using ShGraph = SharpGraph.Graph;
 using GeneratorSet = System.Collections.Generic.HashSet<string>;
 public class EdgeData {
-    public string generator = string.Empty;
-    public string? start;
+    public string Generator { get; set; }
+
+    public string Start { get; set; }
 }
 
-public static class RandomGroups {
+public class RandomGroups {
 
     static void AssignRandomOrientation(TaggedGraph graph, Random random) {
         foreach (var edge in graph.Edges) {
-            edge.Tag!.start = random.Next(2) == 0 ? edge.Source : edge.Target;
+            edge.Tag.Start = random.Next(2) == 0 ? edge.Source : edge.Target;
         }
     }
 
     static string InvertGenerator(string generator) 
     => string.Concat(generator.Reverse().Select(c => char.IsUpper(c) ? char.ToLower(c) : char.ToUpper(c)));
-    static string[] GetGeneratorNames(int k)
-    {
-        if (k>26)
-            //throw new ArgumentException("k must be <= 26");
-            k = 26;
-        return Enumerable.Range(0, k).Select(i =>
-            ((char)('a' + i)).ToString()
-        ).ToArray();
-    }
+    static string[] GetGeneratorNames(int k) => 
+        Enumerable.Range(0, k).Select(i => 
+                ((char)('a' + i)).ToString()
+            ).ToArray();
 
     static void AssignRandomGenerators(TaggedGraph graph, string[] generatorNames, Random random) {
         GeneratorSet generators = new(generatorNames);
         GeneratorSet gensAndInverses = new(generators);
-        gensAndInverses.UnionWith(generators.Select(InvertGenerator));
+        generators.UnionWith(generators.Select(InvertGenerator));
 
         string RandomGenerator(GeneratorSet blockedGenerators) {
             var okGenerators = new GeneratorSet(gensAndInverses);
@@ -47,8 +49,8 @@ public static class RandomGroups {
 
         GeneratorSet AssignedOutgoingGeneratorsAtVertex(string vertex) {
             return new GeneratorSet(graph.AdjacentEdges(vertex)
-                .Where(e => string.IsNullOrWhiteSpace(e.Tag?.generator))
-                .Select(e => e.Tag!.start == vertex ? e.Tag.generator : InvertGenerator(e.Tag.generator)));
+                .Where(e => e.Tag is { Generator: not null })
+                .Select(e => e.Tag.Start == vertex ? e.Tag.Generator : InvertGenerator(e.Tag.Generator)));
         }
 
         const int retries = 10;
@@ -58,7 +60,7 @@ public static class RandomGroups {
                 GeneratorSet assignedGenerators = AssignedOutgoingGeneratorsAtVertex(vertex);
 
                 foreach (var edge in graph.AdjacentEdges(vertex)) {
-                    if (!string.IsNullOrWhiteSpace(edge.Tag?.generator))
+                    if (edge.Tag is { Generator: not null })
                         continue;
 
                     GeneratorSet assignedGeneratorsAtTarget = new GeneratorSet(
@@ -66,10 +68,8 @@ public static class RandomGroups {
                     if (i < retries - 1)
                         assignedGenerators.UnionWith(assignedGeneratorsAtTarget);
 
-                    if (assignedGenerators.Count == gensAndInverses.Count)
-                    {
-                        Console.WriteLine("Warning: All generators are blocked at edge " + edge.Source + " - " +
-                                          edge.Target);
+                    if (assignedGenerators.Count == gensAndInverses.Count) {
+                        Console.WriteLine("Warning: All generators are blocked at edge " + edge.Source + " - " + edge.Target);
                         broken = true;
                         break;
                     }
@@ -77,7 +77,7 @@ public static class RandomGroups {
                     string randomGenerator = RandomGenerator(assignedGenerators);
 
                     assignedGenerators.Add(randomGenerator);
-                    edge.Tag = new EdgeData { generator = randomGenerator, start = vertex };
+                    edge.Tag = new EdgeData { Generator = randomGenerator, Start = vertex };
                 }
                 if (broken)
                     break;
@@ -93,46 +93,38 @@ public static class RandomGroups {
         }
     }
 
-    public static string[] RelatorsFromGraph(TaggedGraph dirGraph) {
+    static string[] RelatorsFromGraph(TaggedGraph dirGraph) {
+
+        EdgeData f(string start, string end)
+        {
+            dirGraph.TryGetEdge(start, end, out TaggedEdge<string, EdgeData> edge);
+            Debug.Assert(edge != null, nameof(edge) + " != null");
+            return edge.Tag;
+        }
+
         var loops = 
             from nodeCycle in GetSimpleCycles(dirGraph)
             let l = nodeCycle.Count
             where l != 2
             let edgeDataCycle = (
                 from i in Enumerable.Range(0, nodeCycle.Count)
-                select (getEdge(nodeCycle[i], nodeCycle[(i + 1) % nodeCycle.Count]), i)
+                select (f(nodeCycle[i], nodeCycle[(i + 1) % nodeCycle.Count]), i)
             )
             let generatorCycle = (
                 from tuple in edgeDataCycle
                 let edgeData = tuple.Item1
                 let i = tuple.i
                 select
-                    edgeData.start == nodeCycle[i]
-                    ? edgeData.generator
-                    : InvertGenerator(edgeData.generator)
+                    edgeData.Start == nodeCycle[i]
+                    ? edgeData.Generator
+                    : InvertGenerator(edgeData.Generator)
                 )
             select string.Join("", generatorCycle)
             ;
         return loops.ToArray();
-
-        EdgeData getEdge(string start, string end)
-        {
-            dirGraph.TryGetEdge(start, end, out var edge);
-            Debug.Assert(edge != null, nameof(edge) + " != null");
-            return edge.Tag ?? new EdgeData();
-        }
     }
     
-    public static (string[] generatorNames, TaggedGraph graph) RandomGraphWithEdgeWords(int vertexCount, int edgeCount, double proportionOfGenerators)
-    {
-        if (vertexCount < 1)
-            vertexCount = 1;
-        if (edgeCount < 0)
-            edgeCount = 0;
-        if (proportionOfGenerators < 0.5)
-            proportionOfGenerators = 0.5;
-        
-        var random = new Random(); 
+    static TaggedGraph RandomGraphWithEdgeWords(int vertexCount, int edgeCount, double proportionOfGenerators, Random random) {
         TaggedGraph graph = new();
 
         var vertexNumber = 0;
@@ -159,35 +151,57 @@ public static class RandomGroups {
         string[] generatorNames = GetGeneratorNames(k);
         AssignRandomGenerators(graph, generatorNames, random);
 
-        return (generatorNames, graph);
+        return graph;
     }
 
 
-    public static (string[], string[]) RandomPresentation(int vertexCount, int edgeCount, double proportionOfGenerators)
-    {
-        var (generatorNames, graph) = RandomGraphWithEdgeWords(vertexCount, edgeCount, proportionOfGenerators);
+    public static (string[], string[]) RandomPresentation() {
+        Random random = new Random();
+        string[] generatorNames = GetGeneratorNames(5); // Adjust the size as needed
+        TaggedGraph graph = RandomGraphWithEdgeWords(5, 20, 0.75, random);
+        AssignRandomOrientation(graph, random);
+        AssignRandomGenerators(graph, generatorNames, random);
         var relators = RelatorsFromGraph(graph);
+
+        //Console.WriteLine("Generator Names: " + string.Join(", ", generatorNames));
+        //Console.WriteLine("Relators: " + string.Join(", ", relators));
         return (generatorNames, relators);
     }
 
-    static IEnumerable<List<string>> GetSimpleCycles(TaggedGraph taggedGraph)
-    {
-        var sharpGraph = Converter.ConvertToSharpGraph(taggedGraph);
-        return (
-            from nodeList in sharpGraph.FindSimpleCycles()
-            select (
-                from node in nodeList
-                select node.GetLabel()
-            ).ToList()
-        );
+    static List<List<string>> GetSimpleCycles(TaggedGraph dirGraph) {
+        //return QuikGraph.Algorithms.Search.AllCyclesSearch.FindAllCycles(dirGraph);
+        return new List<List<string>>();
+        // TODO change to different graph library
     }
 }
 
 
 public static class Converter {
-    public static ShGraph ConvertToSharpGraph(TaggedGraph quickGraph) =>
-        new ((
-            from edge in quickGraph.Edges
-            select new SharpGraph.Edge(edge.Source, edge.Target)
-        ).ToList());
+    public static SharpGraph.Graph ConvertToSharpGraph(TaggedGraph quickGraph)
+    {
+        SharpGraph.Graph  sharpGraph = new ();
+
+        Dictionary<string, SharpGraph.Node> nodes =  new (
+             from vertex in quickGraph.Vertices
+                    let node = SharpGraph.Node(vertex)
+                    select new 
+                );
+        // Add nodes to the SharpGraph
+        foreach (var vertex in quickGraph.Vertices)
+        {
+            sharpGraph.AddNode(vertex);
+        }
+
+        // Add edges to the SharpGraph
+        foreach (var edge in quickGraph.Edges)
+        {
+            sharpGraph.AddNode(node1);
+            sharpGraph.AddNode(node2);
+            sharpGraph.AddEdge(node1, node2);
+            sharpGraph.AddEdge(node1, node2);
+        }
+
+        return sharpGraph;
+    }
+
 }
