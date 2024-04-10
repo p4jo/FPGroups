@@ -10,15 +10,15 @@ using SharpGraph;
 using ShGraph = SharpGraph.Graph;
 using GeneratorSet = System.Collections.Generic.HashSet<string>;
 public class EdgeData {
-    public string Generator = String.Empty;
-    public string? Start;
+    public string generator = string.Empty;
+    public string? start;
 }
 
 public static class RandomGroups {
 
     static void AssignRandomOrientation(TaggedGraph graph, Random random) {
         foreach (var edge in graph.Edges) {
-            edge.Tag.Start = random.Next(2) == 0 ? edge.Source : edge.Target;
+            edge.Tag!.start = random.Next(2) == 0 ? edge.Source : edge.Target;
         }
     }
 
@@ -27,7 +27,8 @@ public static class RandomGroups {
     static string[] GetGeneratorNames(int k)
     {
         if (k>26)
-            throw new ArgumentException("k must be <= 26");
+            //throw new ArgumentException("k must be <= 26");
+            k = 26;
         return Enumerable.Range(0, k).Select(i =>
             ((char)('a' + i)).ToString()
         ).ToArray();
@@ -46,8 +47,8 @@ public static class RandomGroups {
 
         GeneratorSet AssignedOutgoingGeneratorsAtVertex(string vertex) {
             return new GeneratorSet(graph.AdjacentEdges(vertex)
-                .Where(e => string.IsNullOrWhiteSpace(e.Tag?.Generator))
-                .Select(e => e.Tag!.Start == vertex ? e.Tag.Generator : InvertGenerator(e.Tag.Generator)));
+                .Where(e => string.IsNullOrWhiteSpace(e.Tag?.generator))
+                .Select(e => e.Tag!.start == vertex ? e.Tag.generator : InvertGenerator(e.Tag.generator)));
         }
 
         const int retries = 10;
@@ -57,7 +58,7 @@ public static class RandomGroups {
                 GeneratorSet assignedGenerators = AssignedOutgoingGeneratorsAtVertex(vertex);
 
                 foreach (var edge in graph.AdjacentEdges(vertex)) {
-                    if (!string.IsNullOrWhiteSpace(edge.Tag?.Generator))
+                    if (!string.IsNullOrWhiteSpace(edge.Tag?.generator))
                         continue;
 
                     GeneratorSet assignedGeneratorsAtTarget = new GeneratorSet(
@@ -76,7 +77,7 @@ public static class RandomGroups {
                     string randomGenerator = RandomGenerator(assignedGenerators);
 
                     assignedGenerators.Add(randomGenerator);
-                    edge.Tag = new EdgeData { Generator = randomGenerator, Start = vertex };
+                    edge.Tag = new EdgeData { generator = randomGenerator, start = vertex };
                 }
                 if (broken)
                     break;
@@ -106,9 +107,9 @@ public static class RandomGroups {
                 let edgeData = tuple.Item1
                 let i = tuple.i
                 select
-                    edgeData.Start == nodeCycle[i]
-                    ? edgeData.Generator
-                    : InvertGenerator(edgeData.Generator)
+                    edgeData.start == nodeCycle[i]
+                    ? edgeData.generator
+                    : InvertGenerator(edgeData.generator)
                 )
             select string.Join("", generatorCycle)
             ;
@@ -162,7 +163,7 @@ public static class RandomGroups {
         return (generatorNames, relators);
     }
 
-    static List<List<string>> GetSimpleCycles(TaggedGraph taggedGraph)
+    static IEnumerable<List<string>> GetSimpleCycles(TaggedGraph taggedGraph)
     {
         var sharpGraph = Converter.ConvertToSharpGraph(taggedGraph);
         return (
@@ -171,20 +172,15 @@ public static class RandomGroups {
                 from node in nodeList
                 select node.GetLabel()
             ).ToList()
-        ).ToList();
+        );
     }
 }
 
 
 public static class Converter {
-    public static ShGraph ConvertToSharpGraph(TaggedGraph quickGraph)
-    {
-        ShGraph sharpGraph = new ((
+    public static ShGraph ConvertToSharpGraph(TaggedGraph quickGraph) =>
+        new ((
             from edge in quickGraph.Edges
-            select new Edge(edge.Source, edge.Target)
+            select new SharpGraph.Edge(edge.Source, edge.Target)
         ).ToList());
-
-        return sharpGraph;
-    }
-
 }

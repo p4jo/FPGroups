@@ -1,0 +1,96 @@
+#!meta
+
+{"kernelInfo":{"defaultKernelName":"csharp","items":[{"aliases":[],"languageName":"csharp","name":"csharp"}]}}
+
+#!csharp
+
+#r "nuget: MathNet.Numerics, 4.15.0"
+
+#!csharp
+
+using System;
+using System.Linq;
+using MathNet.Numerics;
+using MathNet.Numerics.LinearAlgebra;
+using MathNet.Numerics.Optimization;
+
+
+List<double[]> FindDistributedVectors(int n) {
+    if (n <= 0) return new List<double[]>();
+    
+    var resultAsVectors = new List<double[]> { new double[] { 1, 0, 0 } };
+    if (n == 1) return resultAsVectors;
+
+    var objective = ObjectiveFunction.Value(ComputeObjective);
+    var initialGuess = Vector<double>.Build.Random(2 * (n - 1));
+
+    var optimizer = new NelderMeadSimplex(1e-9, 10000);
+    var result = optimizer.FindMinimum(objective, initialGuess).MinimizingPoint;
+    resultAsVectors.AddRange(
+        from i in Enumerable.Range(0, n-1)
+        let v = new double[]{ (float)result[i * 2], (float)result[i * 2 + 1], 1 }
+        let normSquared = 1 / Math.Sqrt(v[0] * v[0] + v[1] * v[1] + 1)
+        select new double[] { v[0] * normSquared, v[1] * normSquared, normSquared }
+    );
+    return resultAsVectors;
+
+    double ComputeObjective(Vector<double> x) {
+        if (x.Count != 2*(n-1)) throw new ArgumentException("Input vector must have length 2*(n-1)");
+        double[] normSquared = (from i in Enumerable.Range(0, n-1) select x[2*i] * x[2*i] + x[2*i+1] * x[2*i+1] + 1).ToArray();
+
+        double sumSquaredDotProducts = 0;
+        for (int i = 0; i < n-1; i++) {
+            for (int j = 0; j < i; j++) {
+                double dotProduct = x[2*i] * x[2*j] + x[2*i+1] * x[2*j+1] + 1;
+                sumSquaredDotProducts += dotProduct * dotProduct / (normSquared[i] * normSquared[j]);
+            }
+            sumSquaredDotProducts += x[2*i] * x[2*i] / normSquared[i];
+        }
+
+        return sumSquaredDotProducts;
+    }
+}
+
+Console.WriteLine("var distributedVectors = new[] { \n\t new Vector3[] {");
+for (int i = 1; i < 20; i++) {
+    Console.WriteLine("\t\t},\n\tnew Vector3[] {");
+    Console.WriteLine("\t\t" + string.Join(",\n\t\t", from v in FindDistributedVectors(i) select "new Vector3(" + string.Join(", ", from d in v select $"{d}f") + ')'));
+}
+Console.WriteLine("\t}\n}");
+
+#!csharp
+
+var n = 5;
+
+var objective = ObjectiveFunction.Value(ComputeObjective);
+var initialGuess = Vector<double>.Build.Random(2 * (n - 1));
+
+var optimizer = new NelderMeadSimplex(1e-9, 10000);
+var result = optimizer.FindMinimum(objective, initialGuess).MinimizingPoint;
+var resultAsVectors = (
+    from i in Enumerable.Range(0, n-1)
+    let v = new double[]{ (float)result[i * 2], (float)result[i * 2 + 1], 1 }
+    let normSquared = 1 / Math.Sqrt(v[0] * v[0] + v[1] * v[1] + 1)
+    select new double[] { v[0] * normSquared, v[1] * normSquared, normSquared }
+).ToList();
+
+resultAsVectors.Add(
+    new double[] { 1, 0, 0 }
+);
+return resultAsVectors;
+
+double ComputeObjective(Vector<double> x) {
+    if (x.Count != 2*(n-1)) throw new ArgumentException("Input vector must have length 2*(n-1)");
+    double[] normSquared = (from i in Enumerable.Range(0, n-1) select x[2*i] * x[2*i] + x[2*i+1] * x[2*i+1] + 1).ToArray();
+
+    double sumSquaredDotProducts = 0;
+    for (int i = 0; i < n-1; i++) {
+        for (int j = 0; j < i; j++) {
+            double dotProduct = x[2*i] * x[2*j] + x[2*i+1] * x[2*j+1] + 1;
+            sumSquaredDotProducts += dotProduct * dotProduct / (normSquared[i] * normSquared[j]);
+        }
+        sumSquaredDotProducts += x[2*i] * x[2*i] / normSquared[i];
+    }
+
+    return sumSquaredDotProducts;
+}
