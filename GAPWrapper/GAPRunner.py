@@ -25,6 +25,10 @@ START_LOG = '"start!"'
 HALT_LOG = '"return!"'
 PREPARED_LOG = "?help"
 STARTUP_COMMAND = "/home/johannesh/repos/gap/gap"
+#"%appdata%\\GAP\\runtime\\bin\\cygstart %appdata%\\GAP\\runtime\\bin\\bash --login /run-gap.sh" # was too complicated to get it to run on windows, in the same process I started it
+WORKING_DIRECTORY = None #"%appdata%\\GAP\\runtime\\bin"
+ENVIRONMENT_VARIABLES = None #os.environ.copy()
+
 VERBOSE = True
 WAIT_FOR_COMPLETION_TIMEOUT = 10
 WAIT_FOR_COMPLETION_SLEEP_TIME = 0.1
@@ -57,7 +61,7 @@ class GAPRunner:
 
     @staticmethod
     async def newRunner(command: str, workingDirectory: PathOrString | None = None, info: str = "", timeoutFunction: Callable[[float], bool] = lambda x: False):
-        self = GAPRunner(info=info, timeoutFunction=timeoutFunction, process = await asyncio.create_subprocess_shell(command, stdin=PIPE, stdout=PIPE, cwd=workingDirectory))
+        self = GAPRunner(info=info, timeoutFunction=timeoutFunction, process = await asyncio.create_subprocess_shell(command, stdin=PIPE, stdout=PIPE, cwd=workingDirectory, env=ENVIRONMENT_VARIABLES))
         print(f"Created new GAP runner with PID {self.process.pid} (process ID as seen in the task manager) and command\n\t{command}.")
         for i in range(round( STARTUP_TIMEOUT/STARTUP_SLEEP_TIME) ):
             logs = await self.updateLog(log=VERBOSE)
@@ -137,6 +141,7 @@ class GAPRunner:
         print("-----------------------------------------")
         self.lines = []
         # await readlines_alreadyWritten(self.process)
+        assert self.process.stdin is not None
         self.process.stdin.write(f"{command}\r\n".encode("utf-8"))
         self._state = RunnerStates.RUNNING
         self._lastLogTime = time.time()
@@ -154,10 +159,12 @@ class GAPRunner:
     async def updateLog(self, timeout: float = 0.05, log: bool = False) -> list:
         """ Loads the latest log messages from the process into self.lines and returns them. Don't call this during execution but call self.getState() because else the program might miss that it switched to the waiting state. """
         lines: List[str] = []
+        assert self.process.stdout is not None
         while self.process.returncode is None:
             try:
                 line = (
                     await asyncio.wait_for(
+                        # self.process.stdout.read(2),
                         self.process.stdout.readline(),
                         timeout = timeout
                     )
@@ -171,7 +178,7 @@ class GAPRunner:
             except RuntimeError:
                 continue
         else:
-            lines = (await self.process.stdout.read()).decode('utf-8', errors='replace').splitlines()
+            lines.extend((await self.process.stdout.read()).decode('utf-8', errors='replace').splitlines())
         if len(lines) > 0:
             self._lastLogTime = time.time()
             print("\tRead", len(lines), "lines from process", self.process.pid)
@@ -189,7 +196,7 @@ def runServer(port):
         try:
             raise KeyboardInterrupt("actually interrupted by call to stopServer")
         finally:
-            print("Closed by call to \stopServer---")
+            print("Closed by call to /stopServer---")
 
     async def startup():
         app = web.Application()
@@ -207,7 +214,7 @@ async def do_execute(query):
     fails = 0
     while fails < 5:
         if not runner or await runner.getState() == RunnerStates.FINISHED:
-            runner = await GAPRunner.newRunner(STARTUP_COMMAND)
+            runner = await GAPRunner.newRunner(STARTUP_COMMAND, WORKING_DIRECTORY)
             fails += 1
         if await runner.continueRun(START_LOG+";"+query+HALT_LOG+";"):
             break
