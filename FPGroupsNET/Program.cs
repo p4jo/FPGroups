@@ -1,9 +1,10 @@
 ﻿int vertexCount = 5;    
 int edgeCount = 12;
 double proportionOfGenerators = 0.5;
+    
+var gapClient = new GAPClient();
 while (true)
 {
-    
     while (true)
     {
         Console.WriteLine($"Enter the number of vertices: [{vertexCount}]");
@@ -35,7 +36,7 @@ while (true)
         if (Console.ReadLine()?.ToLower() != "y") continue;
     }
     Console.WriteLine("Unreduced group:\n<" + string.Join(", ", gens) + " | " + string.Join(", ", rels) + ">");
-    var (optGens, optRels, optMap) = await FpGroups.OptimizePresentation(gens, rels);
+    var (b, optGens, optRels, optMap) = await gapClient.OptimizePresentation(gens, rels);
     Console.WriteLine("Reduced group:\n<" + string.Join(", ", optGens) + " | " + string.Join(", ", optRels) + ">\nwith " + string.Join(", ",
         from g in gens select g + " -> " + optMap[g]
     ));
