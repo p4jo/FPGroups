@@ -1,5 +1,6 @@
 {
     "python.analysis.autoImportCompletions": false,
     "python.analysis.typeCheckingMode": "basic",
-    "cmake.configureOnOpen": false
+    "cmake.configureOnOpen": false,
+    "FSharp.suggestGitignore": false
 }

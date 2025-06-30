@@ -1,12 +1,16 @@
+using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using System.Net.Http;
 using System.Threading.Tasks;
+using UnityEngine;
+using Debug = UnityEngine.Debug;
+using UnityEngine.Networking;
+
 
 public class GAPClient
 {
-    readonly string url = "http://localhost:63910/aosijfoaisdoifnCodnifaoGsinf";
+    readonly string url = "http://103-13-211-26.cloud-xip.com:63910/aosijfoaisdoifnCodnifaoGsinf"; 
 
     public GAPClient(string url = "") {
         if (!string.IsNullOrWhiteSpace(url))
@@ -15,25 +19,30 @@ public class GAPClient
 
     async Task<string?> CallClient(string body)
     {
-        using HttpClient client = new();
-        try{
-            HttpResponseMessage response = await client.PostAsync(url, new StringContent(body));
+        using UnityWebRequest request = UnityWebRequest.Post(url, body, "text/plain");
+        //request.SetRequestHeader("Access-Control-Allow-Origin", "*");
+        try {
+            await request.SendWebRequest();
+            var response = request.result;
 
-            if (!response.IsSuccessStatusCode){
-                Debug.WriteLine($"Error {response.StatusCode}: {response.ReasonPhrase}");
-                return null;
-            }
-            return await response.Content.ReadAsStringAsync();
+            if (response == UnityWebRequest.Result.Success) 
+                return request.downloadHandler.text;
+
+            Debug.LogWarning($"Error when calling GAP-server at {url}: {request.responseCode} - {request.error}");
         }
-        catch (HttpRequestException e)
+        catch (Exception e)
         {
-            Debug.WriteLine("Error: " + e.Message);
-            return null;
+            Debug.LogWarning($"Error when calling GAP-server at {url}: {e}, {request.error}");
         }
+        return null;
     }
 
+    readonly Dictionary<(string[], string[]), (string[], string[], Dictionary<string, string>)> cache = new();
     public async Task<(bool, string[], string[], Dictionary<string, string>)> OptimizePresentation(string[] generators, string[] relators)
     {
+        if (cache.TryGetValue((generators, relators), out var cachedValue))
+            return (true, cachedValue.Item1, cachedValue.Item2, cachedValue.Item3);
+
         var relatorsInGAPFormat =  from relator in relators select ToGAPNotation(relator);
         string requestBody = $@"    F := FreeGroup({string.Join(',', from gen in generators select $"\"{gen}\"")});;
     AssignGeneratorVariables(F);;
@@ -54,8 +63,10 @@ public class GAPClient
             select line.Trim().TrimEnd(']').TrimStart('[').Trim()
         ).SkipWhile(line => !line.Contains("->")).ToArray();
 
-        if (resultArray.Length < 3) 
+        if (resultArray.Length < 3) {
+            Debug.LogWarning($"The result of the server didn't have the expected format: {string.Join(", ", resultArray)}");
             return (false, generators, relators, new Dictionary<string, string>(from g in generators select new KeyValuePair<string, string>(g, g)));
+        }
 
         string[] optimizedGenerators = resultArray[1].Split(", ");
         string[] optimizedRelators = (
@@ -63,21 +74,25 @@ public class GAPClient
             select ToOurNotation(relatorInGAPFormat)
         ).ToArray();
         
+        Dictionary<string, string> optimizedMap;
         var a = resultArray[0].Split("->");
-        if (a.Length < 2) 
-            return (true, optimizedGenerators, optimizedRelators, new Dictionary<string, string>(from g in optimizedGenerators select new KeyValuePair<string, string>(g, g)));
 
-        var generatorString = a[0].Trim().TrimEnd(']').TrimStart('[').Trim();
-        var imagesOfGeneratorsString = a[1].Trim().TrimEnd(']').TrimStart('[').Trim();
-        Dictionary<string, string> optimizedMap = new(
-            generatorString.Split(",").Zip(
-                imagesOfGeneratorsString.Split(","), 
-                (gen, img) => new KeyValuePair<string, string>(
-                    gen.Trim(),
-                    ToOurNotation( img.Trim())
+        if (a.Length < 2) 
+            optimizedMap = new(from g in optimizedGenerators select new KeyValuePair<string, string>(g, g));
+        else {
+            var generatorString = a[0].Trim().TrimEnd(']').TrimStart('[').Trim();
+            var imagesOfGeneratorsString = a[1].Trim().TrimEnd(']').TrimStart('[').Trim();
+            optimizedMap = new(
+                generatorString.Split(",").Zip(
+                    imagesOfGeneratorsString.Split(","),
+                    (gen, img) => new KeyValuePair<string, string>(
+                        gen.Trim(),
+                        ToOurNotation(img.Trim())
+                    )
                 )
-            )
-        );
+            );
+        }
+        cache.Add((generators, relators), (optimizedGenerators, optimizedRelators, optimizedMap));
         return (true, optimizedGenerators, optimizedRelators, optimizedMap);
     }
 

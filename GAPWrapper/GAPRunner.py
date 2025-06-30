@@ -19,22 +19,30 @@ PathOrString = Union[os.PathLike, str]
 
 #endregion
 
-ROUTE_OBFUSCATION = 'aosijfoaisdoifnCodnifaoGsinf'
-DEFAULT_PORT = 63910
+#region Constants
+ROUTE_OBFUSCATION = 'aosijfoaisdoifnCodnifaoGsinf' # todo: remove from git
+DEFAULT_PORT = 63910 # todo: remove from git
 START_LOG = '"start!"'
 HALT_LOG = '"return!"'
 PREPARED_LOG = "?help"
-STARTUP_COMMAND = "/home/johannesh/repos/gap/gap"
-#"%appdata%\\GAP\\runtime\\bin\\cygstart %appdata%\\GAP\\runtime\\bin\\bash --login /run-gap.sh" # was too complicated to get it to run on windows, in the same process I started it
-WORKING_DIRECTORY = None #"%appdata%\\GAP\\runtime\\bin"
-ENVIRONMENT_VARIABLES = None #os.environ.copy()
+STARTUP_COMMAND = os.getenv("GAP_PATH", "/home/johannesh/repos/gap/gap")
+# "%appdata%\\GAP\\runtime\\bin\\cygstart %appdata%\\GAP\\runtime\\bin\\bash --login /run-gap.sh" 
+# was too complicated to get it to run on windows, in the same process I started it
+WORKING_DIRECTORY = None # "%appdata%\\GAP\\runtime\\bin"
+ENVIRONMENT_VARIABLES = None # os.environ.copy()
 
-VERBOSE = True
+VERBOSE = False # True
 WAIT_FOR_COMPLETION_TIMEOUT = 10
 WAIT_FOR_COMPLETION_SLEEP_TIME = 0.1
 STARTUP_SLEEP_TIME = 0.5
 STARTUP_TIMEOUT = 10
 PROCESS_TIMEOUT = 60
+
+ACCESS_CONTROL_ORIGIN = "*"
+
+#endregion
+
+#region GAPRunner class
 
 class RunnerStates(Enum):
     WAITING = 1
@@ -46,7 +54,6 @@ class ErrorStates(Enum):
     RETURN_CODE_NONZERO = 1
     NEVER_WAITED = 2
     ABORTED = 3
-
 class GAPRunner:
 
     def __init__(self, info: str, timeoutFunction: Callable[[float], bool], process: Process) -> None:
@@ -164,7 +171,6 @@ class GAPRunner:
             try:
                 line = (
                     await asyncio.wait_for(
-                        # self.process.stdout.read(2),
                         self.process.stdout.readline(),
                         timeout = timeout
                     )
@@ -185,16 +191,18 @@ class GAPRunner:
             self.lines.extend(lines)
         return lines
 #endregion
-    
+
+#region Server
+
 def runServer(port):
     async def handle(request):
         """ the request must come as text of the form 'texFile,outdir' """
         query = (await request.text())
-        return web.Response(text=await do_execute(query))
+        return web.Response(text=await do_execute(query), headers={"Access-Control-Allow-Origin": ACCESS_CONTROL_ORIGIN})
 
     async def handleStopServer(request):
         try:
-            raise KeyboardInterrupt("actually interrupted by call to stopServer")
+            raise KeyboardInterrupt("actually interrupted by call to stopServer", headers={"Access-Control-Allow-Origin": ACCESS_CONTROL_ORIGIN})
         finally:
             print("Closed by call to /stopServer---")
 
@@ -202,7 +210,8 @@ def runServer(port):
         app = web.Application()
         app.add_routes([
             web.post(f'/{ROUTE_OBFUSCATION}', handle),
-            web.get(f'/stopServer{ROUTE_OBFUSCATION}', handleStopServer)
+            web.get(f'/stopServer{ROUTE_OBFUSCATION}', handleStopServer),
+            web.options(f'/{ROUTE_OBFUSCATION}', lambda x: web.Response(headers={"Access-Control-Allow-Origin": ACCESS_CONTROL_ORIGIN, "Access-Control-Allow-Methods": "POST", "Access-Control-Allow-Headers": "Content-Type, Access-Control-Allow-Origin"}))
         ])
         return app
 
@@ -243,6 +252,7 @@ async def do_execute(query):
             en = i
             break
     return "\n".join(runner.lines[st:en])
+#endregion
 
 if __name__ == "__main__":
     runServer(DEFAULT_PORT)
